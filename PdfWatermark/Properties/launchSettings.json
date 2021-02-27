@@ -1,0 +1,8 @@
+{
+  "profiles": {
+    "PdfWatermark": {
+      "commandName": "Project",
+      "commandLineArgs": "0"
+    }
+  }
+}
