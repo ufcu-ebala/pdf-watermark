@@ -1,5 +1,6 @@
 ﻿using System;
 using System.IO;
+using System.Linq;
 using iText.IO.Font;
 using iText.IO.Font.Constants;
 using iText.Kernel.Colors;
@@ -17,6 +18,8 @@ namespace PdfWatermark
     class Program
     {
         private static LogLevel _level = LogLevel.Info;
+        private static bool _continue = true;
+        private static bool _error;
 
         /// <summary>
         /// main entry point for watermarking PDFs
@@ -24,18 +27,37 @@ namespace PdfWatermark
         /// <param name="args">args[0] - Log Level: Defaults to LogLevel.Info</param>
         static void Main(string[] args)
         {
+            if (args?.Length > 0)
+                _level = Enum.Parse<LogLevel>(args[0]);
+            if (args?.Length > 1)
+                _continue = bool.Parse(args[1]);
+
+            // Setup Directory Content
+            string directory, pdfs, original, archive, failures, csv;
+            directory = pdfs = original = archive = failures = csv = string.Empty;
+            var content = Array.Empty<string>();
             try
             {
-                if (args?.Length > 0)
-                    _level = Enum.Parse<LogLevel>(args[0]);
-                var error = false;
+                if (args?.Length > 2)
+                    directory = args[2];
+                if (args?.Length > 3)
+                    pdfs = args[3];
+                if (args?.Length > 4)
+                    csv = args[4];
+
                 Console.Write("Working Directory: ");
-                var directory = Console.ReadLine() ?? Directory.GetCurrentDirectory();
+                if (string.IsNullOrEmpty(directory))
+                    directory = Console.ReadLine() ?? Directory.GetCurrentDirectory();
+                else
+                    Console.Write($"{directory}\n");
                 Console.Write("PDFs Locations: ");
-                var pdfs = Console.ReadLine() ?? throw new ArgumentException("PDF Directory cannot be null!");
-                var original = Path.Join(directory, "Originals");
-                var archive = Path.Join(directory, "Archive");
-                var failures = Path.Join(directory, "Failures");
+                if (string.IsNullOrEmpty(pdfs))
+                    pdfs = Console.ReadLine() ?? throw new ArgumentException("PDF Directory cannot be null!");
+                else
+                    Console.Write($"{pdfs}\n");
+                original = Path.Join(directory, "Originals");
+                archive = Path.Join(directory, "Archive");
+                failures = Path.Join(directory, "Failures");
                 if (!Directory.Exists(directory))
                     Directory.CreateDirectory(directory);
                 if (!Directory.Exists(original))
@@ -45,57 +67,163 @@ namespace PdfWatermark
                 if (!Directory.Exists(failures))
                     Directory.CreateDirectory(failures);
                 Console.Write("CSV File (full filepath): ");
-                var csv = Console.ReadLine() ?? throw new ArgumentException("CSV File cannot be null");
-                var content = File.ReadAllLines(csv);
-                using (var progress = new ProgressBar())
-                {
-                    for (var i = 0; i < content.Length; i++)
-                    {
-                        var row = content[i].Split(',');
-                        // First check if the file exists
-                        if (!File.Exists(Path.Join(pdfs, $"{row[0]}.pdf")))
-                        {
-                            System.Diagnostics.Debug.WriteLine($"File Not Found: {row[0]}.pdf");
-                            continue;
-                        }
+                if (string.IsNullOrEmpty(csv))
+                    csv = Console.ReadLine() ?? throw new ArgumentException("CSV File cannot be null");
+                else
+                    Console.Write($"{csv}\n");
+                content = File.ReadAllLines(csv);
+            }
+            catch (Exception e)
+            {
+                Log("Unable to setup Directory", LogLevel.Error);
+                Log(e.ToString(), LogLevel.Warning);
+                Console.WriteLine("Press Any Key To Continue...");
+                Console.ReadLine();
+            }
 
-                        // go ahead and copy the file to the original location for storage
-                        System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.pdf");
+            // check original files, error'ing on files missing
+            Log("Checking Original Files...");
+            using (var progress = new ProgressBar())
+            {
+                for (var i = 0; i < content.Length; i++)
+                {
+                    if (File.Exists(Path.Join(pdfs, $"{content[i].Split(',')[0]}.pdf"))) continue;
+                    Log($"File Missing! {content[i].Split(',')[0]}.pdf");
+                    var temp = content.ToList();
+                    temp.RemoveAt(i);
+                    i--;
+                    content = temp.ToArray();
+                    _error = true;
+                    progress.Report((double) i / content.Length);
+                }
+
+                progress.Report(1);
+            }
+
+            if (_error && !Prompt()) return;
+
+            // now actually move the files to the original location
+            Log("Moving files to eOriginal Location");
+            using (var progress = new ProgressBar())
+            {
+                for (var i = 0; i < content.Length; i++)
+                {
+                    var row = content[i].Split(',');
+                    if (!File.Exists(Path.Join(pdfs, $"{row[0]}.pdf")))
+                    {
+                        Log($"Skipping File: {row[0]}.pdf", LogLevel.Warning);
+                        progress.Report((double) i / content.Length);
+                        continue;
+                    }
+                    // go ahead and copy the file to the original location for storage
+                    System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.pdf");
+                    try
+                    {
                         File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(original, $"{row[0]}.pdf"));
-                        // now check if we have all data points
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Error attempting to copy {row[0]}.pdf\n{e}", LogLevel.Error);
+                        if (!Prompt()) return;
+                        _error = true;
+                    }
+
+                    progress.Report((double) i / content.Length);
+                }
+
+                progress.Report(1);
+            }
+
+            if (_error && !Prompt()) return;
+
+            // second call: write 'failures': PDFs that do not have enough information to index with 'Warning' level
+            Log("Copying Failure PDFs due to missing IDX Content");
+            using (var progress = new ProgressBar())
+            {
+                for (var i = 0; i < content.Length; i++)
+                {
+                    var row = content[i].Split(',');
+                    try
+                    {
                         if (row.Length != 4)
                         {
-                            System.Diagnostics.Debug.WriteLine($"File {row[0]}.pdf missing content: {row.Length}");
-                            // we move the file to the failures directory
                             File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(failures, $"{row[0]}.pdf"));
-                            error = true;
-                            continue;
-                        }
+                            var temp = content.ToList();
+                            temp.RemoveAt(i);
+                            i--;
+                            content = temp.ToArray();
+                        }   
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Error attempting to copy {row[0]}.pdf\n{e}", LogLevel.Error);
+                        if (!Prompt()) return;
+                        _error = true;
+                    }
+                    System.Diagnostics.Debug.WriteLineIf(row.Length != 4, $"File {row[0]}.pdf missing content for indexing: {row.Length}");
+                    progress.Report((double) i / content.Length);
+                }
+
+                progress.Report(1);
+            }
+
+            if (_error && !Prompt()) return;
+
+            // third call: write watermark PDFs and generate associated index file
+            Log("Generating Archive and associated IDX Files");
+            using (var progress = new ProgressBar())
+            {
+                for (var i = 0; i < content.Length; i++)
+                {
+                    var row = content[i].Split(',');
+                    try
+                    {
                         // now we make the watermarked archive file
                         WatermarkPdf(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Error attempting to watermark PDF: {row[0]}.pdf\n{e}", LogLevel.Error);
+                        if (!Prompt()) return;
+                    }
+                    try
+                    {
                         // now we create the idx file
                         System.Diagnostics.Debug.WriteLine($"Creating Indexing File: {row[0]}.csv");
                         using (var writer = File.CreateText(Path.Join(archive, $"{row[0]}.csv")))
                             writer.WriteLine($"{row[1]},{row[2]},{row[3]}");
                         System.Diagnostics.Debug.WriteLine("IDX File Completed");
-                        progress.Report((double)i / content.Length);
+                    }
+                    catch (Exception e)
+                    {
+                        Log($"Error attempting to generate IDX: {row[0]}.csv\n{e}", LogLevel.Error);
+                        if (!Prompt()) return;
                     }
 
-                    progress.Report(1);
+                    progress.Report((double) i / content.Length);
                 }
 
-                Log($"Finished Parsing Directory: {pdfs}");
-                if (error) Log("Failures were gracefully handled", LogLevel.Error);
-                Console.WriteLine("Press Any Key to Continue...");
-                Console.ReadLine();
+                progress.Report(1);
             }
-            catch (Exception e)
+
+            Console.WriteLine("Finished Execution, press any key to continue...");
+            Console.ReadLine();
+        }
+
+        private static bool Prompt()
+        {
+            if (!_continue)
             {
-                Log(e.Message, LogLevel.Error);
-                Log(e.StackTrace, LogLevel.Error);
-                Console.WriteLine("System Encountered a Fatal Error, Press any key to continue...");
-                Console.ReadLine();
+                Console.Write("\nContinue w/Errors? (Y/n): ");
+                var result = Console.ReadLine();
+                if (string.IsNullOrEmpty(result)) result = "y";
+                if (!result.Equals("y", StringComparison.InvariantCultureIgnoreCase)) return false;
             }
+
+            System.Diagnostics.Debug.WriteLine("Continuing Execution");
+            Log("Continuing Execution");
+            _error = false;  // reset error flag
+            return true;
         }
 
         private static void WatermarkPdf(string sourceFile, string destinationPath)
@@ -182,6 +310,12 @@ namespace PdfWatermark
         {
             switch (level)
             {
+                case LogLevel.Warning:
+                    Console.BackgroundColor = ConsoleColor.Black;
+                    Console.ForegroundColor = ConsoleColor.DarkYellow;
+                    Console.WriteLine($"[{DateTime.Now:s}] [WRN] {message}");
+                    Console.ResetColor();
+                    break;
                 case LogLevel.Error:
                     Console.BackgroundColor = ConsoleColor.Black;
                     Console.ForegroundColor = ConsoleColor.Red;
@@ -196,7 +330,7 @@ namespace PdfWatermark
                     break;
                 case LogLevel.Info:
                 default:
-                    Console.WriteLine($"[{DateTime.Now:s}] [${level}] {message}");
+                    Console.WriteLine($"[{DateTime.Now:s}] [{level}] {message}");
                     break;
             }
         }
@@ -205,7 +339,8 @@ namespace PdfWatermark
         {
             Verbose = 0,
             Info = 1,
-            Error = 2,
+            Warning = 2,
+            Error = 3,
         }
     }
 }
