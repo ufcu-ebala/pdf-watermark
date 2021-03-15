@@ -18,33 +18,75 @@ namespace PdfWatermark
     {
         private static LogLevel _level = LogLevel.Info;
 
+        /// <summary>
+        /// main entry point for watermarking PDFs
+        /// </summary>
+        /// <param name="args">args[0] - Log Level: Defaults to LogLevel.Info</param>
         static void Main(string[] args)
         {
             try
             {
                 if (args?.Length > 0)
                     _level = Enum.Parse<LogLevel>(args[0]);
-                Console.Write("Directory: ");
-                var directory = Console.ReadLine();
-                var destination = Path.Join(directory, "Archive");
-                if (!Directory.Exists(destination))
-                    Directory.CreateDirectory(destination);
-                var files = Directory.GetFiles(directory, "*.pdf");
-                Log($"Parsing Files: {files.Length}");
+                var error = false;
+                Console.Write("Working Directory: ");
+                var directory = Console.ReadLine() ?? Directory.GetCurrentDirectory();
+                Console.Write("PDFs Locations: ");
+                var pdfs = Console.ReadLine() ?? throw new ArgumentException("PDF Directory cannot be null!");
+                var original = Path.Join(directory, "Originals");
+                var archive = Path.Join(directory, "Archive");
+                var failures = Path.Join(directory, "Failures");
+                if (!Directory.Exists(directory))
+                    Directory.CreateDirectory(directory);
+                if (!Directory.Exists(original))
+                    Directory.CreateDirectory(original);
+                if (!Directory.Exists(archive))
+                    Directory.CreateDirectory(archive);
+                if (!Directory.Exists(failures))
+                    Directory.CreateDirectory(failures);
+                Console.Write("CSV File (full filepath): ");
+                var csv = Console.ReadLine() ?? throw new ArgumentException("CSV File cannot be null");
+                var content = File.ReadAllLines(csv);
                 using (var progress = new ProgressBar())
                 {
-                    for (var i = 0; i < files.Length; i++)
+                    for (var i = 0; i < content.Length; i++)
                     {
-                        var info = new FileInfo(files[i]);
-                        WatermarkPdf(info.FullName, Path.Join(destination, info.Name));
-                        progress.Report((double) i / files.Length);
+                        var row = content[i].Split(',');
+                        // First check if the file exists
+                        if (!File.Exists(Path.Join(pdfs, $"{row[0]}.pdf")))
+                        {
+                            System.Diagnostics.Debug.WriteLine($"File Not Found: {row[0]}.pdf");
+                            continue;
+                        }
+
+                        // go ahead and copy the file to the original location for storage
+                        System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.pdf");
+                        File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(original, $"{row[0]}.pdf"));
+                        // now check if we have all data points
+                        if (row.Length != 4)
+                        {
+                            System.Diagnostics.Debug.WriteLine($"File {row[0]}.pdf missing content: {row.Length}");
+                            // we move the file to the failures directory
+                            File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(failures, $"{row[0]}.pdf"));
+                            error = true;
+                            continue;
+                        }
+                        // now we make the watermarked archive file
+                        WatermarkPdf(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
+                        // now we create the idx file
+                        System.Diagnostics.Debug.WriteLine($"Creating Indexing File: {row[0]}.csv");
+                        using (var writer = File.CreateText(Path.Join(archive, $"{row[0]}.csv")))
+                            writer.WriteLine($"{row[1]},{row[2]},{row[3]}");
+                        System.Diagnostics.Debug.WriteLine("IDX File Completed");
+                        progress.Report((double)i / content.Length);
                     }
 
                     progress.Report(1);
                 }
 
-                Log($"Finished Watermarking Directory: {directory}");
-                Console.WriteLine("Press Any Key To Continue...");
+                Log($"Finished Parsing Directory: {pdfs}");
+                if (error) Log("Failures were gracefully handled", LogLevel.Error);
+                Console.WriteLine("Press Any Key to Continue...");
                 Console.ReadLine();
             }
             catch (Exception e)
