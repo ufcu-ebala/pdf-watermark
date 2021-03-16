@@ -2,6 +2,8 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Threading;
+using System.Threading.Tasks;
 using iText.IO.Font;
 using iText.IO.Font.Constants;
 using iText.IO.Image;
@@ -133,22 +135,29 @@ namespace PdfWatermark
 
             // now actually move the files to the original location
             Log("Moving files to eOriginal Location");
-            using (var progress = new ProgressBar())
+            using (var countdown = new CountdownEvent(content.Length))
+            using (var progress = new ProgressBar(content.Length))
             {
-                for (var i = 0; i < content.Length; i++)
+                foreach (var line in content)
                 {
-                    var row = content[i].Split(',');
+                    var row = line.Split(',');
                     if (!File.Exists(Path.Join(pdfs, $"{row[0]}.tif")))
                     {
                         Log($"Skipping File: {row[0]}.tif", LogLevel.Warning);
-                        progress.Report((double) i / content.Length);
+                        progress.Report();
                         continue;
                     }
+
                     // go ahead and copy the file to the original location for storage
                     System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.tif");
                     try
                     {
-                        TiffToPdf(Path.Join(pdfs, $"{row[0]}.tif"), Path.Join(original, $"{row[0]}.pdf"));
+                        ThreadPool.QueueUserWorkItem(_ =>
+                        {
+                            TiffToPdf(Path.Join(pdfs, $"{row[0]}.tif"), Path.Join(original, $"{row[0]}.pdf"));
+                            progress.Report();
+                            countdown.Signal();
+                        });
                     }
                     catch (Exception e)
                     {
@@ -156,89 +165,102 @@ namespace PdfWatermark
                         if (!Prompt()) return;
                         _error = true;
                     }
-
-                    progress.Report((double) i / content.Length);
                 }
-
+                
+                countdown.Wait();
                 progress.Report(1);
             }
+            Log($"Finished Processing Original Directory: {content.Length}");
 
             if (_error && !Prompt()) return;
 
             // second call: write 'failures': PDFs that do not have enough information to index with 'Warning' level
             Log("Copying Failure PDFs due to missing IDX Content");
-            using (var progress = new ProgressBar())
+            var total = 0;
+            using (var countdown = new CountdownEvent(content.Length))
+            using (var progress = new ProgressBar(content.Length))
             {
                 for (var i = 0; i < content.Length; i++)
                 {
                     var row = content[i].Split(',');
-                    try
+                    if (row.Length != 4 || row.Any(string.IsNullOrEmpty))
                     {
-                        if (row.Length != 4 || row.Any(string.IsNullOrEmpty))
+                        System.Diagnostics.Debug.WriteLine(
+                            $"File {row[0]}.pdf missing content for indexing: {row.Length}");
+                        total++;
+                        ThreadPool.QueueUserWorkItem(_ =>
                         {
-                            File.Copy(Path.Join(original, $"{row[0]}.pdf"), Path.Join(failures, $"{row[0]}.pdf"));
-                            var temp = content.ToList();
-                            temp.RemoveAt(i);
-                            i--;
-                            content = temp.ToArray();
-                        }
+                            try
+                            {
+                                File.Copy(Path.Join(original, $"{row[0]}.pdf"),
+                                    Path.Join(failures, $"{row[0]}.pdf"));
+                            }
+                            catch (Exception e)
+                            {
+                                Log($"Error attempting to copy {row[0]}.pdf\n{e}", LogLevel.Error);
+                                _error = true;
+                            }
+                            countdown.Signal();
+                            progress.Report();
+                        });
+                        var temp = content.ToList();
+                        temp.RemoveAt(i);
+                        i--;
+                        content = temp.ToArray();
+                        continue;
                     }
-                    catch (Exception e)
-                    {
-                        Log($"Error attempting to copy {row[0]}.pdf\n{e}", LogLevel.Error);
-                        if (!Prompt()) return;
-                        _error = true;
-                    }
-                    System.Diagnostics.Debug.WriteLineIf(row.Length != 4, $"File {row[0]}.pdf missing content for indexing: {row.Length}");
-                    progress.Report((double) i / content.Length);
+
+                    progress.Report();
+                    countdown.Signal();
                 }
 
+                countdown.Wait();
                 progress.Report(1);
             }
+            if (_error && !Prompt()) return;
+            Log($"Finished Processing Missing Data: Failures {total}");
 
             if (_error && !Prompt()) return;
 
             // third call: write watermark PDFs and generate associated index file
             Log("Generating Archive and associated IDX Files");
-            using (var progress = new ProgressBar())
+            using (var countdown = new CountdownEvent(content.Length))
+            using (var progress = new ProgressBar(content.Length))
             {
-                for (var i = 0; i < content.Length; i++)
+                foreach (var line in content)
                 {
-                    var row = content[i].Split(',');
-                    try
+                    var row = line.Split(',');
+                    ThreadPool.QueueUserWorkItem(_ =>
                     {
-                        // now we make the watermarked archive file
-                        WatermarkPdf(Path.Join(original, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
-                    }
-                    catch (Exception e)
-                    {
-                        Log($"Error attempting to watermark PDF: {row[0]}.pdf\n{e}", LogLevel.Error);
-                        if (!Prompt()) return;
-                    }
-                    try
-                    {
-                        // now we create the idx file
-                        System.Diagnostics.Debug.WriteLine($"Creating Indexing File: {row[0]}.csv");
-                        using (var writer = File.CreateText(Path.Join(archive, $"{row[0]}.csv")))
+                        try
+                        {
+                            WatermarkPdf(Path.Join(original, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
+                            // now we create the idx file
+                            System.Diagnostics.Debug.WriteLine($"Creating Indexing File: {row[0]}.csv");
+                            using var writer = File.CreateText(Path.Join(archive, $"{row[0]}.csv"));
                             writer.WriteLine($"{row[1]},{row[2]},{row[3]}");
-                        System.Diagnostics.Debug.WriteLine("IDX File Completed");
-                    }
-                    catch (Exception e)
-                    {
-                        Log($"Error attempting to generate IDX: {row[0]}.csv\n{e}", LogLevel.Error);
-                        if (!Prompt()) return;
-                    }
-
-                    progress.Report((double) i / content.Length);
+                            System.Diagnostics.Debug.WriteLine("IDX File Completed");
+                            countdown.Signal();
+                            progress.Report();
+                        }
+                        catch (Exception e)
+                        {
+                            Log($"Error attempting to watermark PDF or Generate IDX: {row[0]}.pdf\n{e}", LogLevel.Error);
+                            System.Diagnostics.Debug.WriteLine(e);
+                            countdown.Signal();
+                        }
+                    });
                 }
 
+                countdown.Wait();
                 progress.Report(1);
             }
+            Log($"Finished Watermarking PDFs and Generating IDXs");
 
             Console.WriteLine("Finished Execution, press any key to continue...");
             Console.ReadLine();
         }
-
+        
         private static void TiffToPdf(string original, string destination)
         {
             var writer = new PdfWriter(destination);

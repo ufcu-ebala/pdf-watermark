@@ -17,10 +17,14 @@ namespace PdfWatermark
 
 		private readonly Timer timer;
 
+        private int _count = 0;
+        private int _maximum = int.MaxValue;
 		private double currentProgress = 0;
 		private string currentText = string.Empty;
 		private bool disposed = false;
 		private int animationIndex = 0;
+
+        public ProgressBar(int max) : this() => _maximum = max;
 
 		public ProgressBar()
 		{
@@ -41,6 +45,13 @@ namespace PdfWatermark
 			value = Math.Max(0, Math.Min(1, value));
 			Interlocked.Exchange(ref currentProgress, value);
 		}
+
+        public void Report()
+        {
+            _count++;
+            var value = Math.Max(0, Math.Min(1, (double) _count / _maximum));
+            Report(value);
+        }
 
 		private void TimerHandler(object state)
 		{
@@ -87,7 +98,7 @@ namespace PdfWatermark
 
 			Console.Write(outputBuilder);
 			currentText = text;
-		}
+        }
 
 		private void ResetTimer()
 		{
@@ -100,7 +111,8 @@ namespace PdfWatermark
 			{
 				disposed = true;
 				UpdateText(string.Empty);
-			}
+                Console.WriteLine();
+            }
 		}
 
 	}
