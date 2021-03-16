@@ -1,8 +1,11 @@
 ﻿using System;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using iText.IO.Font;
 using iText.IO.Font.Constants;
+using iText.IO.Image;
+using iText.IO.Source;
 using iText.Kernel.Colors;
 using iText.Kernel.Font;
 using iText.Kernel.Geom;
@@ -11,6 +14,8 @@ using iText.Kernel.Pdf.Annot;
 using iText.Kernel.Pdf.Canvas;
 using iText.Kernel.Pdf.Extgstate;
 using iText.Kernel.Pdf.Xobject;
+using iText.Layout;
+using iText.Layout.Element;
 using Path = System.IO.Path;
 
 namespace PdfWatermark
@@ -27,6 +32,30 @@ namespace PdfWatermark
         /// <param name="args">args[0] - Log Level: Defaults to LogLevel.Info</param>
         static void Main(string[] args)
         {
+            //using var list = File.CreateText(@"E:\unique_ids.csv");
+            //string Generate()
+            //{
+            //    var random = new Random();
+            //    return random.Next(1, 100) < 90
+            //        ? Guid.NewGuid().ToString("N")
+            //        : string.Empty;
+            //}
+            //foreach (var file in Directory.GetFiles(@"E:\Loan Securitization\"))
+            //    list.WriteLine($"{new FileInfo(file).Name.Replace(".TIF", "")},{Generate()},{Generate()},{Generate()}");
+            //return;
+            //var source = @"E:\19060_300.TIF";
+            //var destination = @"E:\results.pdf";
+            //if (File.Exists(destination))
+            //{
+            //    Log("Deleting Destination File");
+            //    File.Delete(destination);
+            //}
+            //Log($"[TEST RUN] Converting: {source} to {destination}");
+            //TiffToPdf(source, destination);
+            //Log("Press Any Key to continue...");
+            //Console.ReadLine();
+            //return;
+
             if (args?.Length > 0)
                 _level = Enum.Parse<LogLevel>(args[0]);
             if (args?.Length > 1)
@@ -87,8 +116,8 @@ namespace PdfWatermark
             {
                 for (var i = 0; i < content.Length; i++)
                 {
-                    if (File.Exists(Path.Join(pdfs, $"{content[i].Split(',')[0]}.pdf"))) continue;
-                    Log($"File Missing! {content[i].Split(',')[0]}.pdf");
+                    if (File.Exists(Path.Join(pdfs, $"{content[i].Split(',')[0]}.tif"))) continue;
+                    Log($"File Missing! {content[i].Split(',')[0]}.tif");
                     var temp = content.ToList();
                     temp.RemoveAt(i);
                     i--;
@@ -109,21 +138,21 @@ namespace PdfWatermark
                 for (var i = 0; i < content.Length; i++)
                 {
                     var row = content[i].Split(',');
-                    if (!File.Exists(Path.Join(pdfs, $"{row[0]}.pdf")))
+                    if (!File.Exists(Path.Join(pdfs, $"{row[0]}.tif")))
                     {
-                        Log($"Skipping File: {row[0]}.pdf", LogLevel.Warning);
+                        Log($"Skipping File: {row[0]}.tif", LogLevel.Warning);
                         progress.Report((double) i / content.Length);
                         continue;
                     }
                     // go ahead and copy the file to the original location for storage
-                    System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.pdf");
+                    System.Diagnostics.Debug.WriteLine($"Copying File: {row[0]}.tif");
                     try
                     {
-                        File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(original, $"{row[0]}.pdf"));
+                        TiffToPdf(Path.Join(pdfs, $"{row[0]}.tif"), Path.Join(original, $"{row[0]}.pdf"));
                     }
                     catch (Exception e)
                     {
-                        Log($"Error attempting to copy {row[0]}.pdf\n{e}", LogLevel.Error);
+                        Log($"Error attempting to copy {row[0]}.tif\n{e}", LogLevel.Error);
                         if (!Prompt()) return;
                         _error = true;
                     }
@@ -145,14 +174,14 @@ namespace PdfWatermark
                     var row = content[i].Split(',');
                     try
                     {
-                        if (row.Length != 4)
+                        if (row.Length != 4 || row.Any(string.IsNullOrEmpty))
                         {
-                            File.Copy(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(failures, $"{row[0]}.pdf"));
+                            File.Copy(Path.Join(original, $"{row[0]}.pdf"), Path.Join(failures, $"{row[0]}.pdf"));
                             var temp = content.ToList();
                             temp.RemoveAt(i);
                             i--;
                             content = temp.ToArray();
-                        }   
+                        }
                     }
                     catch (Exception e)
                     {
@@ -179,7 +208,7 @@ namespace PdfWatermark
                     try
                     {
                         // now we make the watermarked archive file
-                        WatermarkPdf(Path.Join(pdfs, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
+                        WatermarkPdf(Path.Join(original, $"{row[0]}.pdf"), Path.Join(archive, $"{row[0]}.pdf"));
                     }
                     catch (Exception e)
                     {
@@ -208,6 +237,18 @@ namespace PdfWatermark
 
             Console.WriteLine("Finished Execution, press any key to continue...");
             Console.ReadLine();
+        }
+
+        private static void TiffToPdf(string original, string destination)
+        {
+            var writer = new PdfWriter(destination);
+            var pdf = new PdfDocument(writer);
+            var document = new Document(pdf);
+            var bytes = File.ReadAllBytes(original);
+            var pages = TiffImageData.GetNumberOfPages(bytes);
+            for (var i = 1; i <= pages; i++)
+                document.Add(new Image(ImageDataFactory.CreateTiff(bytes, false, i, false)));
+            document.Close();
         }
 
         private static bool Prompt()
