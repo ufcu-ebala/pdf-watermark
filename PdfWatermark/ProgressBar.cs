@@ -1,4 +1,6 @@
 ﻿using System;
+using System.IO;
+using System.Linq;
 using System.Text;
 using System.Threading;
 
@@ -9,11 +11,14 @@ namespace PdfWatermark
 	/// An ASCII progress bar
 	/// http://opensource.org/licenses/MIT
 	/// </summary>
-	public class ProgressBar : IDisposable, IProgress<double>
-	{
-		private const int blockCount = 10;
+	public class ProgressBar : TextWriter, IDisposable, IProgress<double>
+    {
+        private const string _hook = "\u129b";
+        private StringWriter _captured;
+        private TextWriter _writer;
+		private const int blockCount = 100;
 		private readonly TimeSpan animationInterval = TimeSpan.FromSeconds(1.0 / 8);
-		private const string animation = @"|/-\";
+        private readonly char[] animation = {'|', '/', '-', '\\'};
 
 		private readonly Timer timer;
 
@@ -27,7 +32,10 @@ namespace PdfWatermark
         public ProgressBar(int max) : this() => _maximum = max;
 
 		public ProgressBar()
-		{
+        {
+            _captured = new StringWriter();
+            _writer = Console.Out;
+            Console.SetOut(this);
 			timer = new Timer(TimerHandler);
 
 			// A progress bar is only for temporary display in a console window.
@@ -39,7 +47,49 @@ namespace PdfWatermark
 			}
 		}
 
-		public void Report(double value)
+        /// <inheritdoc />
+        public override void Write(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return;
+            var previous = _captured.ToString().Split(Environment.NewLine).Last();
+            if (previous == value) return;
+            if (string.IsNullOrEmpty(previous))
+            {
+                _writer.Write(value);
+                _captured.Write(value);
+                return;
+            }
+
+            if (previous.StartsWith(_hook))
+            {
+                Console.SetCursorPosition(0, Console.CursorTop);
+                value = value.TrimStart(Environment.NewLine.ToCharArray());
+                if (string.IsNullOrEmpty(value)) return;
+                var content = value;
+                if (!value.StartsWith(_hook))
+                    content = value.EndsWith(Environment.NewLine)
+                        ? $"{value}{currentText}"
+                        : $"{value}{Environment.NewLine}{currentText}";
+                _writer.Write(content);
+                _captured.Write(content);
+                return;
+            }
+
+            _writer.Write(value);
+            _captured.Write(value);
+        }
+
+        /// <inheritdoc />
+        public override void WriteLine()
+        {
+            Console.SetCursorPosition(0, Console.CursorTop);
+            _writer.WriteLine($"{Environment.NewLine}{currentText}");
+        }
+
+        /// <inheritdoc />
+        public override Encoding Encoding => _writer.Encoding;
+
+        public void Report(double value)
 		{
 			// Make sure value is in [0..1] range
 			value = Math.Max(0, Math.Min(1, value));
@@ -59,45 +109,25 @@ namespace PdfWatermark
 			{
 				if (disposed) return;
 
+
 				int progressBlockCount = (int)(currentProgress * blockCount);
 				int percent = (int)(currentProgress * 100);
-				string text = string.Format("[{0}{1}] {2,3}% {3}",
-					new string('#', progressBlockCount), new string('-', blockCount - progressBlockCount),
-					percent,
-					animation[animationIndex++ % animation.Length]);
-				UpdateText(text);
-
-				ResetTimer();
+                var builder = new StringBuilder();
+                builder.Append($"[{new string('#', progressBlockCount)}");
+                builder.Append($"{new string('-', blockCount - progressBlockCount)}] ");
+                builder.Append($"{percent}% ");
+                builder.Append(animation[animationIndex++ % animation.Length]);
+                UpdateText(builder.ToString());
+                ResetTimer();
 			}
 		}
 
 		private void UpdateText(string text)
-		{
-			// Get length of common portion
-			int commonPrefixLength = 0;
-			int commonLength = Math.Min(currentText.Length, text.Length);
-			while (commonPrefixLength < commonLength && text[commonPrefixLength] == currentText[commonPrefixLength])
-			{
-				commonPrefixLength++;
-			}
-
-			// Backtrack to the first differing character
-			StringBuilder outputBuilder = new StringBuilder();
-			outputBuilder.Append('\b', currentText.Length - commonPrefixLength);
-
-			// Output new suffix
-			outputBuilder.Append(text.Substring(commonPrefixLength));
-
-			// If the new text is shorter than the old one: delete overlapping characters
-			int overlapCount = currentText.Length - text.Length;
-			if (overlapCount > 0)
-			{
-				outputBuilder.Append(' ', overlapCount);
-				outputBuilder.Append('\b', overlapCount);
-			}
-
-			Console.Write(outputBuilder);
-			currentText = text;
+        {
+            if (!text.StartsWith(_hook))
+                text = _hook + text;
+            currentText = text;
+            Console.Write(currentText);
         }
 
 		private void ResetTimer()
@@ -105,15 +135,17 @@ namespace PdfWatermark
 			timer.Change(animationInterval, TimeSpan.FromMilliseconds(-1));
 		}
 
-		public void Dispose()
+        public new void Dispose()
 		{
 			lock (timer)
-			{
+            {
+                UpdateText($"{currentText}\n");
+                _captured?.Dispose();
+                Console.SetOut(_writer);
 				disposed = true;
-				UpdateText(string.Empty);
-                Console.WriteLine();
             }
 		}
 
-	}
+        void IDisposable.Dispose() => Dispose();
+    }
 }
