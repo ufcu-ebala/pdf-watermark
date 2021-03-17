@@ -13,6 +13,7 @@ using iText.Kernel.Pdf.Extgstate;
 using iText.Kernel.Pdf.Xobject;
 using iText.Layout;
 using iText.Layout.Element;
+using Path = System.IO.Path;
 
 namespace PdfWatermark
 {
@@ -38,6 +39,56 @@ namespace PdfWatermark
             document.Close();
         }
 
+        public static void ConvertToPdf(string source, string destination)
+        {
+            bool IsTiff(Stream stream)
+            {
+                // move stream to beginning
+                stream.Position = 0;
+                if (stream.Length < 8)
+                    return false;
+                var header = new byte[2];
+                stream.Read(header, 0, header.Length);
+                if (header[0] != header[1] || header[0] != 0x49 && header[0] != 0x4d)
+                    return false;
+                var isIntel = header[0] == 0x49;
+                var temp = new byte[2];
+                stream.Read(temp, 0, temp.Length);
+                var magic = isIntel
+                    ? (ushort) ((temp[1] << 8) | temp[0])
+                    : (ushort) ((temp[0] << 8) | temp[1]);
+                return magic == 42;
+            }
+
+            switch (Path.GetExtension(source).ToLower())
+            {
+                case ".tif":
+                    TiffToPdf(source, destination);
+                    break;
+                case ".jpg":
+                    // we have to check if it's an actual JPG...
+                    bool flag;
+                    using (var stream = File.OpenRead(source))
+                        flag = IsTiff(stream);
+                    if (flag) TiffToPdf(source, destination);
+                    else JpgToPdf(source, destination);
+                    break;
+                default:
+                    Logger.Log("Unknown File Extension Type!", Logger.LogLevel.Error);
+                    ReportManager.ReportUnknownFile(source);
+                    break;
+            }
+        }
+
+        public static void JpgToPdf(string source, string destination)
+        {
+            var writer = new PdfWriter(destination);
+            var pdf = new PdfDocument(writer);
+            var document = new Document(pdf);
+            var bytes = File.ReadAllBytes(source);
+            document.Add(new Image(ImageDataFactory.CreateJpeg(bytes)));
+            document.Close();
+        }
 
         /// <summary>
         /// Watermarks a given PDF file

@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.IO;
+using System.Linq;
 
 namespace PdfWatermark
 {
@@ -9,6 +10,11 @@ namespace PdfWatermark
     /// </summary>
     public static class DirectoryManager
     {
+        private static object _lock = new();
+        /// <summary>
+        /// Files from the File Directory
+        /// </summary>
+        private static string[] Files { get; set; }
         /// <summary>
         /// Base Directory level
         /// </summary>
@@ -33,6 +39,34 @@ namespace PdfWatermark
         /// Data file used for parsing <see cref="FileDirectory" />
         /// </summary>
         public static string DataFile { get; set; }
+
+        /// <summary>
+        /// Attempts to retrieve a file info object based on partial information provided
+        /// </summary>
+        /// <param name="filename"></param>
+        /// <returns></returns>
+        public static FileInfo GetFile(string filename)
+        {
+            if (string.IsNullOrEmpty(FileDirectory))
+                throw new ArgumentException("File Directory Must be Setup First!");
+            lock (_lock)
+                if (Files == null || !Files.Any())
+                    Files = Directory.GetFiles(FileDirectory);
+            if (Files.Contains(filename)) return new FileInfo(Path.Join(FileDirectory, filename));
+            // we might have a mis-match
+            var file = Files.FirstOrDefault(f => f.Contains(filename));
+            if (file != null) return new FileInfo(file);
+
+            file = Files.FirstOrDefault(f => f.Contains(filename.Split('_')[0]));
+            if (file == null)
+            {
+                ReportManager.ReportMissingFile(filename);
+                return null;
+            }
+
+            ReportManager.ReportModifiedFile(filename, file);
+            return new FileInfo(file);
+        }
 
         /// <summary>
         /// Attempts to setup the appropriate directories
