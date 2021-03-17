@@ -87,9 +87,9 @@ namespace PdfWatermark
                     FileDirectory = Console.ReadLine() ?? throw new ArgumentException("PDFBaseDirectory cannot be null!");
                 else
                     Console.Write($"{FileDirectory}\n");
-                OriginalDirectory = Path.Join(BaseDirectory, "Originals");
-                ArchiveDirectory = Path.Join(BaseDirectory, "Archive");
-                FailureDirectory = Path.Join(BaseDirectory, "Failures");
+                OriginalDirectory = Path.Join(BaseDirectory, "Original");
+                ArchiveDirectory = Path.Join(BaseDirectory, "Copy");
+                FailureDirectory = Path.Join(BaseDirectory, "Failure");
                 if (!Directory.Exists(BaseDirectory))
                    Directory.CreateDirectory(BaseDirectory);
                 if (!Directory.Exists(OriginalDirectory))

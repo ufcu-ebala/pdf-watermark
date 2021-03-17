@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Environment = System.Environment;
 
 namespace PdfWatermark
 {
@@ -17,6 +18,10 @@ namespace PdfWatermark
         {
             // generate individual reports for each category
             Logger.Log($"Generating Missing Content Report: {MissingContent?.Count}");
+            File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-content.csv"), $"Name,CUDL_ID,APP_DATE,Description{Environment.NewLine}");
+            File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-files.csv"), $"File Name Missing{Environment.NewLine}");
+            File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "modified-files.csv"), $"Original,New{Environment.NewLine}");
+
             if (MissingContent?.Any() ?? false)
                 foreach (var content in MissingContent)
                     File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-content.csv"),
