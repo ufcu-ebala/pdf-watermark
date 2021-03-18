@@ -73,6 +73,9 @@ namespace PdfWatermark
                     if (flag) TiffToPdf(source, destination);
                     else JpgToPdf(source, destination);
                     break;
+                case ".pdf":
+                    File.Copy(source, destination);
+                    break;
                 default:
                     Logger.Log("Unknown File Extension Type!", Logger.LogLevel.Error);
                     ReportManager.ReportUnknownFile(source);

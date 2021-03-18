@@ -15,7 +15,7 @@ namespace PdfWatermark
         {
             var session = Guid.NewGuid().ToString("N").Substring(0, 8);
             // check original files, error'ing on files missing
-            Logger.Log($"[{session}] Attempting to check for file: {entry[0]}.tif", Logger.LogLevel.Verbose);
+            Logger.Log($"[{session}] Attempting to check for file: {entry[0]}", Logger.LogLevel.Verbose);
             var file = DirectoryManager.GetFile(entry[0]);
             if (file == null)
             {
@@ -50,9 +50,9 @@ namespace PdfWatermark
             Logger.Log($"[{session}] File Successfully created: {Path.GetFileNameWithoutExtension(file.Name)}.pdf", Logger.LogLevel.Verbose);
             // create associated IDX
             using (var writer = File.CreateText(Path.Join(DirectoryManager.ArchiveDirectory, $"{Path.GetFileNameWithoutExtension(file.Name)}.csv")))
-                writer.WriteLine($"{entry[1]},{entry[2]}");
+                writer.WriteLine($"{entry[1]},Other,{entry[2]}");
             Logger.Log($"[{session}] Associated IDX File Created: {Path.GetFileNameWithoutExtension(file.Name)}.csv", Logger.LogLevel.Verbose);
-
+            ReportManager.Report(entry);
             evt.Signal();
             progress.Report();
         }

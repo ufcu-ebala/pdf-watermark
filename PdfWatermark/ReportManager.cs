@@ -2,13 +2,13 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
-using Environment = System.Environment;
 
 namespace PdfWatermark
 {
     public static class ReportManager
     {
         private static readonly object _lock = new();
+        private static ICollection<string[]> GeneralBucket { get; set; }
         private static ICollection<string> MissingFiles { get; set; }
         private static ICollection<string[]> MissingContent { get; set; }
         private static ICollection<(string, string)> ModifiedFiles { get; set; }
@@ -35,8 +35,18 @@ namespace PdfWatermark
                 foreach (var tuple in ModifiedFiles ?? Enumerable.Empty<(string, string)>())
                     File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "modified-files.csv"),
                         $"{tuple.Item1},{tuple.Item2}{Environment.NewLine}");
-
+            Logger.Log($"Generating Succeses Report: {GeneralBucket?.Count}");
+            if (GeneralBucket?.Any() ?? false)
+                foreach (var item in GeneralBucket ?? Enumerable.Empty<string[]>())
+                    File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "success.csv"),
+                        $"{item.Aggregate((a, b) => $"{a},{b}")}{Environment.NewLine}");
             Logger.Log("Finished Generating Reports");
+        }
+
+        public static void Report(string[] entry, params string[] values)
+        {
+            lock (_lock)
+                (GeneralBucket ??= new List<string[]>()).Add(entry.Concat(values).ToArray());
         }
 
         public static void ReportUnknownFile(string filename)
