@@ -13,6 +13,7 @@ using iText.Kernel.Pdf.Extgstate;
 using iText.Kernel.Pdf.Xobject;
 using iText.Layout;
 using iText.Layout.Element;
+using iText.Layout.Properties;
 using Path = System.IO.Path;
 
 namespace PdfWatermark
@@ -35,7 +36,16 @@ namespace PdfWatermark
             var bytes = File.ReadAllBytes(original);
             var pages = TiffImageData.GetNumberOfPages(bytes);
             for (var i = 1; i <= pages; i++)
-                document.Add(new Image(ImageDataFactory.CreateTiff(bytes, false, i, false)));
+            {
+                var image = ImageDataFactory.CreateTiff(bytes, true, i, false);
+                // var image = ImageDataFactory.CreateTiff(bytes, true, i, true);
+                var rec = new Rectangle(image.GetWidth(), image.GetHeight());
+                var page = pdf.AddNewPage(new PageSize(rec));
+                var canvas = new PdfCanvas(page);
+                canvas.AddImageFittedIntoRectangle(image, rec, true);
+            }
+            //for (var i = 1; i <= pages; i++)
+            //    document.Add(new Image(ImageDataFactory.CreateTiff(bytes, false, i, false)));
             document.Close();
         }
 
@@ -100,8 +110,8 @@ namespace PdfWatermark
         /// <param name="destinationPath"></param>
         public static void WatermarkPdf(string sourceFile, string destinationPath)
         {
-            const float watermarkTrimmingRectangleWidth = 300;
-            const float watermarkTrimmingRectangleHeight = 300;
+            const float watermarkTrimmingRectangleWidth = 600;
+            const float watermarkTrimmingRectangleHeight = 600;
 
             const float formWidth = 300;
             const float formHeight = 300;

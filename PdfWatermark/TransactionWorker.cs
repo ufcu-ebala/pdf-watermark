@@ -11,6 +11,8 @@ namespace PdfWatermark
         /// Process work
         /// </summary>
         /// <param name="entry"></param>
+        /// <param name="evt"></param>
+        /// <param name="progress"></param>
         public static void DoWork(string[] entry, CountdownEvent evt, ProgressBar progress)
         {
             var session = Guid.NewGuid().ToString("N").Substring(0, 8);

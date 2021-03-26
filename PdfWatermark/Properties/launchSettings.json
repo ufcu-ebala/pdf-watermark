@@ -1,8 +1,7 @@
 {
   "profiles": {
     "PdfWatermark": {
-      "commandName": "Project",
-      "commandLineArgs": "0 \"E:\\Results Folder\" \"E:\\Loan Securitization\" \"E:\\unique_ids.csv\""
+      "commandName": "Project"
     }
   }
 }
