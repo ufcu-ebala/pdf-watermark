@@ -130,6 +130,9 @@ namespace PdfWatermark
                 Console.Write("Destination Directory (will be created if it doesn't exist: ");
                 var destination = Console.ReadLine();
 
+                if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(destination))
+                    throw new ArgumentException("Locations cannot be Null nor Empty!");
+
                 if (!Directory.Exists(directory))
                     throw new ArgumentException("Directory Doesn't Exist!");
                 if (!Directory.Exists(destination))
