@@ -2,6 +2,7 @@
 using System.IO;
 using System.Linq;
 using System.Threading;
+using iText.Kernel.Crypto;
 using iText.Kernel.Pdf;
 
 namespace PdfWatermark
@@ -122,36 +123,40 @@ namespace PdfWatermark
         /// <param name="args">args[0] - Log Level: Defaults to LogLevel.Info</param>
         public static void Main(string[] args)
         {
-            try
+            Logger.DefaultLevel = Logger.LogLevel.Verbose;
+            Console.Write("Directory to OVERWRITE Pdf Files:");
+            var directory = Console.ReadLine();
+            Console.Write($"Please Confirm: {directory} [y/N]:");
+            if (!(Console.ReadLine()?.Equals("y", StringComparison.InvariantCultureIgnoreCase) ?? false))
+                return;
+            if (string.IsNullOrEmpty(directory))
+                throw new ArgumentException("Locations cannot be Null nor Empty!");
+
+            if (!Directory.Exists(directory))
+                throw new ArgumentException("Directory Doesn't Exist!");
+            DirectoryManager.BaseDirectory = directory;
+            var files = Directory.GetFiles(directory, "*.pdf", SearchOption.AllDirectories);
+            Logger.Log($"Total Files Found: {files.Length}");
+            using var progress = new ProgressBar(files.Length);
+            foreach (var file in files)
             {
-                Logger.DefaultLevel = Logger.LogLevel.Verbose;
-                Console.Write("Original's Directory: ");
-                var directory = Console.ReadLine();
-                Console.Write("Destination Directory (will be created if it doesn't exist: ");
-                var destination = Console.ReadLine();
-
-                if (string.IsNullOrEmpty(directory) || string.IsNullOrEmpty(destination))
-                    throw new ArgumentException("Locations cannot be Null nor Empty!");
-
-                if (!Directory.Exists(directory))
-                    throw new ArgumentException("Directory Doesn't Exist!");
-                if (!Directory.Exists(destination))
-                    Directory.CreateDirectory(destination);
-                var files = Directory.GetFiles(directory);
-                using var progress = new ProgressBar(files.Length);
-                foreach (var file in Directory.GetFiles(directory))
+                try
                 {
-                    PdfManager.WatermarkPdf(file, Path.Join(destination, Path.GetFileName(file)));
+                    Logger.Log($"Watermarking File: {file}");
+                    PdfManager.WatermarkPdf(file, file);
                     progress.Report();
                 }
+                catch (BadPasswordException) { ReportManager.ReportPasswordLockedFile(file); }
+                catch (Exception e)
+                {
+                    Logger.Log(e.ToString(), Logger.LogLevel.Error);
+                    Logger.Log($"File: {file}");
+                    Console.ReadLine();
+                }
             }
-            catch (Exception e)
-            {
-                Logger.Log("Unable execute transactions");
-                Logger.Log(e.ToString(), Logger.LogLevel.Error);
-                Console.WriteLine("Press any key to continue...");
-                Console.ReadLine();
-            }
+
+            progress.Report();
+            ReportManager.Generate();
         }
     }
 }

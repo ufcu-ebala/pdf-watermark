@@ -13,6 +13,7 @@ namespace PdfWatermark
         private static ICollection<string[]> MissingContent { get; set; }
         private static ICollection<(string, string)> ModifiedFiles { get; set; }
         private static ICollection<string> UnknownFiles { get; set; }
+        private static ICollection<string> PasswordLockedFiles { get; set; }
 
         public static void Generate()
         {
@@ -21,11 +22,15 @@ namespace PdfWatermark
             File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-content.csv"), $"Name,CUDL_ID,APP_DATE,Description{Environment.NewLine}");
             File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-files.csv"), $"File Name Missing{Environment.NewLine}");
             File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "modified-files.csv"), $"Original,New{Environment.NewLine}");
-
+            
             if (MissingContent?.Any() ?? false)
                 foreach (var content in MissingContent)
                     File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "missing-content.csv"),
                         $"{content.Aggregate((a, b) => $"{a},{b}")}{Environment.NewLine}");
+            Logger.Log($"Generating Password Locked Files Report: {PasswordLockedFiles?.Count}");
+            if (PasswordLockedFiles?.Any() ?? false)
+                foreach (var file in PasswordLockedFiles)
+                    File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "password-locked.csv"), $"{file}{Environment.NewLine}");
             Logger.Log($"Generating Missing Files Report: {MissingFiles?.Count}");
             if (MissingFiles?.Any() ?? false)
                 foreach (var file in MissingFiles ?? Enumerable.Empty<string>())
@@ -41,6 +46,12 @@ namespace PdfWatermark
                     File.AppendAllText(Path.Join(DirectoryManager.BaseDirectory, "success.csv"),
                         $"{item.Aggregate((a, b) => $"{a},{b}")}{Environment.NewLine}");
             Logger.Log("Finished Generating Reports");
+        }
+
+        public static void ReportPasswordLockedFile(string filename)
+        {
+            lock (_lock)
+                (PasswordLockedFiles ??= new List<string>()).Add(filename);
         }
 
         public static void Report(string[] entry, params string[] values)
